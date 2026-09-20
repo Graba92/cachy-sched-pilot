@@ -35,6 +35,20 @@ PROFILES: Dict[str, SchedProfile] = {
         recommended_flags=[],
         workload_type="General"
     ),
+    "audio_pro": SchedProfile(
+        name="Pro Audio & DAW (Zero Xrun)",
+        target_scheduler="scx_lavd",
+        description="Ultra-niedriger Jitter und garantierte Zeitscheiben für JACK, PipeWire und DAWs.",
+        recommended_flags=["--performance", "--pinned-slice-us", "1500"],
+        workload_type="Audio"
+    ),
+    "emulation_heavy": SchedProfile(
+        name="Emulation & High-Cache (RPCS3/Ryujinx)",
+        target_scheduler="scx_lavd",
+        description="Optimiert für intensive JIT-Rekompilierung und synchronisierte Inter-Core Kommunikation.",
+        recommended_flags=["--performance"],
+        workload_type="Emulation"
+    ),
     "kernel_stock": SchedProfile(
         name="Kernel Default (BORE / EEVDF)",
         target_scheduler="default",

@@ -153,6 +153,27 @@ class SchedPilotApp(App):
                 str(res.throughput_score)
             )
             prog_label.update("✅ Benchmark erfolgreich abgeschlossen!")
+        elif bid == "btn_run_bench_all":
+            prog_label = self.query_one("#bench_progress_label", Static)
+            b_table = self.query_one("#bench_table", DataTable)
+            scx = SystemDetector.detect_scx_status()
+            sched_list = scx.installed_schedulers if scx.installed_schedulers else ["default"]
+
+            prog_label.update(f"⏳ Starte Multi-Benchmark für {len(sched_list)} Scheduler...")
+            for s_name in sched_list:
+                prog_label.update(f"⏳ Benchmark für [bold cyan]{s_name}[/] läuft...")
+                res = await asyncio.to_thread(self.benchmark.run_full_suite, s_name)
+                b_table.add_row(
+                    res.scheduler_name,
+                    res.overall_rating,
+                    f"{res.mean_latency_us} µs",
+                    f"{res.p99_latency_us} µs",
+                    f"±{res.jitter_std_us} µs",
+                    f"{res.ctx_switches_per_sec:,.0f}/s",
+                    str(res.gaming_latency_score),
+                    str(res.throughput_score)
+                )
+            prog_label.update("✅ Alle Scheduler erfolgreich gebencht!")
 
 def run_tui():
     app = SchedPilotApp()

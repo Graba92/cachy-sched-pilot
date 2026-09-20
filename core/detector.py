@@ -47,6 +47,8 @@ class SchedExtStatus:
     installed_schedulers: List[str] = field(default_factory=list)
     scx_loader_installed: bool = False
     scx_loader_active: bool = False
+    scxctl_installed: bool = False
+
 
 class SystemDetector:
     """Zentrale Diagnose für Linux-Kernel, CPU-Architektur & sched-ext."""
@@ -149,19 +151,23 @@ class SystemDetector:
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
 
-        # scx_loader Status
+        # scx_loader & scxctl Status
         scx_loader_inst = bool(shutil.which("scx_loader"))
+        scxctl_inst = bool(shutil.which("scxctl"))
         scx_loader_act = False
-        try:
-            res = subprocess.run(
-                ["systemctl", "is-active", "scx_loader.service"],
-                capture_output=True,
-                text=True,
-                timeout=1
-            )
-            scx_loader_act = res.stdout.strip() == "active"
-        except Exception:
-            pass
+        for srv in ["scx_loader.service", "scx.service"]:
+            try:
+                res = subprocess.run(
+                    ["systemctl", "is-active", srv],
+                    capture_output=True,
+                    text=True,
+                    timeout=1
+                )
+                if res.stdout.strip() == "active":
+                    scx_loader_act = True
+                    break
+            except Exception:
+                pass
 
         return SchedExtStatus(
             supported=True,
@@ -171,20 +177,25 @@ class SystemDetector:
             active_pid=active_pid,
             installed_schedulers=cls.get_installed_scx_schedulers(),
             scx_loader_installed=scx_loader_inst,
-            scx_loader_active=scx_loader_act
+            scx_loader_active=scx_loader_act,
+            scxctl_installed=scxctl_inst
         )
 
     @staticmethod
     def detect_active_workload() -> Tuple[str, List[str]]:
         """
-        Erkennt typische Workloads: Gaming (Steam/Proton), Compile (gcc/make),
-        Content (OBS/Blender) oder Desktop-Idle.
+        Erkennt typische Workloads: Gaming, Emulation, Audio-Produktion, Compile,
+        Content Creation oder Desktop-Idle.
         """
-        gaming_procs = ["steam", "wine", "proton", "heroic", "lutris", "gamescope"]
-        compile_procs = ["gcc", "g++", "clang", "clang++", "rustc", "make", "ninja", "cmake"]
-        media_procs = ["obs", "blender", "kdenlive", "ffmpeg"]
+        gaming_procs = ["steam", "wine", "proton", "heroic", "lutris", "gamescope", "mangohud"]
+        emulation_procs = ["rpcs3", "ryujinx", "yuzu", "cemu", "pcsx2", "dolphin-emu", "duckstation"]
+        audio_procs = ["reaper", "ardour", "bitwig", "carla", "jackd", "qjackctl", "mixxx"]
+        compile_procs = ["gcc", "g++", "clang", "clang++", "rustc", "cargo", "make", "ninja", "cmake"]
+        media_procs = ["obs", "blender", "kdenlive", "ffmpeg", "handbrake"]
 
         detected_gaming = []
+        detected_emu = []
+        detected_audio = []
         detected_compile = []
         detected_media = []
 
@@ -194,6 +205,12 @@ class SystemDetector:
                 for g in gaming_procs:
                     if g in name and g not in detected_gaming:
                         detected_gaming.append(g)
+                for e in emulation_procs:
+                    if e in name and e not in detected_emu:
+                        detected_emu.append(e)
+                for a in audio_procs:
+                    if a in name and a not in detected_audio:
+                        detected_audio.append(a)
                 for c in compile_procs:
                     if c in name and c not in detected_compile:
                         detected_compile.append(c)
@@ -205,8 +222,92 @@ class SystemDetector:
 
         if detected_gaming:
             return "GAMING", detected_gaming
+        if detected_emu:
+            return "EMULATION", detected_emu
+        if detected_audio:
+            return "LOW_LATENCY_AUDIO", detected_audio
         if detected_compile:
             return "COMPILING", detected_compile
         if detected_media:
             return "CONTENT_CREATION", detected_media
         return "IDLE_DESKTOP", []
+
+    @classmethod
+    def run_doctor(cls) -> Dict[str, Any]:
+        """
+        Führt eine lückenlose System- & Kernel-Diagnose für sched-ext durch.
+        Prüft Kernel-Flags, BPF-JIT, D-Bus Tools, Berechtigungen und Tuning-Potential.
+        """
+        status = cls.detect_scx_status()
+        cpu = cls.get_cpu_info()
+        kernel = cls.get_kernel_release()
+        is_cachy = cls.is_cachyos()
+
+        # BPF JIT Prüfung
+        bpf_jit_enabled = False
+        bpf_jit_file = Path("/proc/sys/net/core/bpf_jit_enable")
+        if bpf_jit_file.exists():
+            try:
+                bpf_jit_enabled = bpf_jit_file.read_text(encoding="utf-8").strip() in ["1", "2"]
+            except Exception:
+                pass
+
+        # Polkit / Root Fähigkeit
+        has_root = os.geteuid() == 0
+        has_pkexec = bool(shutil.which("pkexec"))
+        has_sudo = bool(shutil.which("sudo"))
+
+        checks = []
+        # Check 1: Kernel Support
+        if status.sysfs_present:
+            checks.append({"name": "Kernel sched-ext (sysfs)", "status": "OK", "msg": f"/sys/kernel/sched_ext vorhanden ({kernel})"})
+        else:
+            checks.append({"name": "Kernel sched-ext (sysfs)", "status": "FAIL", "msg": "sched-ext nicht unterstützt oder Modul nicht geladen"})
+
+        # Check 2: CachyOS Kernel
+        if is_cachy or "cachyos" in kernel.lower():
+            checks.append({"name": "CachyOS Kernel Optimierungen", "status": "OK", "msg": "CachyOS Kernel mit BORE/SCX Patches aktiv"})
+        else:
+            checks.append({"name": "CachyOS Kernel Optimierungen", "status": "WARN", "msg": "Standard-Kernel erkannt. CachyOS-Kernel empfohlen für max. Performance"})
+
+        # Check 3: BPF JIT Compiler
+        if bpf_jit_enabled:
+            checks.append({"name": "eBPF JIT Compiler", "status": "OK", "msg": "Aktiviert (/proc/sys/net/core/bpf_jit_enable)"})
+        else:
+            checks.append({"name": "eBPF JIT Compiler", "status": "WARN", "msg": "eBPF JIT ist deaktiviert. Kann SCX verlangsamen"})
+
+        # Check 4: Installierte Schedulers
+        sched_count = len(status.installed_schedulers)
+        if sched_count >= 3:
+            checks.append({"name": "Installierte SCX Schedulers", "status": "OK", "msg": f"{sched_count} Scheduler bereit ({', '.join(status.installed_schedulers)})"})
+        elif sched_count > 0:
+            checks.append({"name": "Installierte SCX Schedulers", "status": "WARN", "msg": f"Nur {sched_count} Scheduler gefunden: {', '.join(status.installed_schedulers)}"})
+        else:
+            checks.append({"name": "Installierte SCX Schedulers", "status": "FAIL", "msg": "Keine SCX-Binaries gefunden. Installiere 'scx-scheds'"})
+
+        # Check 5: scxctl & scx_loader
+        if status.scxctl_installed:
+            checks.append({"name": "scxctl D-Bus Client", "status": "OK", "msg": "scxctl ist installiert und nutzbar"})
+        else:
+            checks.append({"name": "scxctl D-Bus Client", "status": "INFO", "msg": "scxctl nicht gefunden (optional, aber empfohlen für CachyOS)"})
+
+        # Check 6: Berechtigungen
+        if has_root:
+            checks.append({"name": "Ausführungsrechte", "status": "OK", "msg": "Läuft mit Root-Privilegien"})
+        elif has_pkexec or has_sudo:
+            checks.append({"name": "Ausführungsrechte", "status": "OK", "msg": f"Elevation via {'pkexec (GUI/Polkit)' if has_pkexec else 'sudo'} möglich"})
+        else:
+            checks.append({"name": "Ausführungsrechte", "status": "WARN", "msg": "Weder pkexec noch sudo verfügbar"})
+
+        # Gesamtbewertung
+        ok_count = sum(1 for c in checks if c["status"] == "OK")
+        score = int((ok_count / len(checks)) * 100) if checks else 0
+
+        return {
+            "score": score,
+            "kernel": kernel,
+            "cpu": cpu,
+            "status": status,
+            "checks": checks
+        }
+

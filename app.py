@@ -16,13 +16,25 @@ from core.benchmark import SchedulerBenchmark
 from core.manager import SchedulerManager
 from core.governor import AutopilotGovernor
 from core.profiles import PROFILES
-from ui.console import console, render_banner, render_system_status, render_benchmark_results, render_profiles
+from ui.console import (
+    console,
+    render_banner,
+    render_system_status,
+    render_benchmark_results,
+    render_profiles,
+    render_doctor_report,
+)
 
 def cmd_status():
     render_banner()
     cpu = SystemDetector.get_cpu_info()
     scx = SystemDetector.detect_scx_status()
     render_system_status(cpu, scx)
+
+def cmd_doctor():
+    render_banner()
+    report = SystemDetector.run_doctor()
+    render_doctor_report(report)
 
 def cmd_bench(iterations: int = 1200):
     render_banner()
@@ -66,6 +78,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Verfügbare Befehle")
 
     subparsers.add_parser("status", help="Aktuelle CPU-, Kernel- & sched-ext Telemetrie anzeigen")
+    subparsers.add_parser("doctor", help="Umfassende sched-ext & Kernel-Diagnose durchführen")
     
     bench_parser = subparsers.add_parser("bench", help="Micro-Benchmark für den aktiven Scheduler ausführen")
     bench_parser.add_argument("--iterations", "-i", type=int, default=1200, help="Anzahl Test-Iterationen")
@@ -86,9 +99,11 @@ def main():
     if not args.command:
         # Wenn kein Befehl übergeben wurde: Status anzeigen & TUI anbieten
         cmd_status()
-        console.print("\n[dim]Tipp: Starte '[bold cyan]python app.py tui[/bold cyan]' für das interaktive Dashboard oder '[bold cyan]python app.py bench[/bold cyan]' für Latenztests.[/dim]\n")
+        console.print("\n[dim]Tipp: Starte '[bold cyan]python app.py tui[/bold cyan]' für das interaktive Dashboard oder '[bold cyan]python app.py doctor[/bold cyan]' für Diagnose.[/dim]\n")
     elif args.command == "status":
         cmd_status()
+    elif args.command == "doctor":
+        cmd_doctor()
     elif args.command == "bench":
         cmd_bench(iterations=args.iterations)
     elif args.command == "switch":

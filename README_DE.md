@@ -137,6 +137,12 @@ pip install --user textual
 cachy-sched-pilot status
 ```
 
+### Vollständige System- & Kernel-Diagnose (Doctor)
+```bash
+cachy-sched-pilot doctor
+```
+Überprüft sysfs sched-ext Unterstützung, CachyOS BORE/SCX Kernel-Patches, eBPF JIT Compiler Status, `scxctl` D-Bus Anbindung, installierte Schedulers und Polkit-Rechte.
+
 ### Micro-Benchmark des aktiven Schedulers ausführen
 ```bash
 cachy-sched-pilot bench --iterations 1500
@@ -144,14 +150,28 @@ cachy-sched-pilot bench --iterations 1500
 
 ### Scheduler manuell umschalten (Hot-Swap)
 ```bash
-# Auf Gaming-Scheduler umschalten:
+# Auf Gaming-Scheduler umschalten (unterstützt scxctl & direkte Prozesse):
 cachy-sched-pilot switch scx_lavd
 
 # Auf Compile-Scheduler umschalten:
 cachy-sched-pilot switch scx_rusty
 
+# Auf Balanced-Desktop-Scheduler umschalten:
+cachy-sched-pilot switch scx_bpfland
+
 # Auf Standard-Kernel zurückkehren:
 cachy-sched-pilot stop
+```
+
+### Verfügbare Tuning-Profile anzeigen
+```bash
+cachy-sched-pilot profiles
+```
+Enthält vorkonfigurierte Profile für **Gaming & E-Sports**, **Pro Audio & DAW (Zero Xrun)**, **Emulation & High-Cache (RPCS3/Ryujinx)**, **Heavy Compilation** und **Balanced Desktop**.
+
+### Test-Suite ausführen
+```bash
+python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
 ### Autonomen Hintergrund-Governor starten

@@ -137,6 +137,12 @@ pip install --user textual
 cachy-sched-pilot status
 ```
 
+### Run Full System & Kernel Health Check (Doctor)
+```bash
+cachy-sched-pilot doctor
+```
+Verifies sysfs sched-ext presence, CachyOS BORE patches, eBPF JIT compiler status, `scxctl` D-Bus tool, installed schedulers, and Polkit elevation permissions.
+
 ### Run Micro-Benchmark for Active Scheduler
 ```bash
 cachy-sched-pilot bench --iterations 1500
@@ -144,14 +150,28 @@ cachy-sched-pilot bench --iterations 1500
 
 ### Hot-Swap Schedulers Manually
 ```bash
-# Switch to gaming-tuned scheduler:
+# Switch to gaming-tuned scheduler (supports scxctl & direct daemon):
 cachy-sched-pilot switch scx_lavd
 
 # Switch to compilation-tuned scheduler:
 cachy-sched-pilot switch scx_rusty
 
+# Switch to balanced desktop scheduler:
+cachy-sched-pilot switch scx_bpfland
+
 # Revert to standard kernel default:
 cachy-sched-pilot stop
+```
+
+### Inspect Pre-Configured Tuning Profiles
+```bash
+cachy-sched-pilot profiles
+```
+Includes profiles for **Gaming & E-Sports**, **Pro Audio & DAW (Zero Xrun)**, **Emulation & High-Cache (RPCS3/Ryujinx)**, **Heavy Compilation**, and **Balanced Desktop**.
+
+### Run Test Suite
+```bash
+python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
 ### Launch Autonomous Workload Governor Daemon

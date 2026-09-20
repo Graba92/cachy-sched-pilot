@@ -33,9 +33,24 @@ class AutopilotGovernor:
             self.log(f"[Governor] 🎮 Gaming-Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
             self.manager.switch_scheduler(target)
 
+        elif mode == "EMULATION":
+            target = cfg.get("emulation_scheduler", "scx_lavd")
+            self.log(f"[Governor] 🕹️ Emulations-Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
+            self.manager.switch_scheduler(target)
+
+        elif mode == "LOW_LATENCY_AUDIO":
+            target = cfg.get("audio_scheduler", "scx_lavd")
+            self.log(f"[Governor] 🎵 Low-Latency DAW-Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
+            self.manager.switch_scheduler(target)
+
         elif mode == "COMPILING":
             target = cfg.get("compile_scheduler", "scx_rusty")
             self.log(f"[Governor] 🔨 Compile-Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
+            self.manager.switch_scheduler(target)
+
+        elif mode == "CONTENT_CREATION":
+            target = cfg.get("content_scheduler", "scx_bpfland")
+            self.log(f"[Governor] 🎬 Content-Creation Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
             self.manager.switch_scheduler(target)
 
         elif mode == "IDLE_DESKTOP":

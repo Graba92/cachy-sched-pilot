@@ -86,3 +86,27 @@ def render_profiles() -> None:
         table.add_row(pid, prof.target_scheduler, prof.workload_type, prof.description)
 
     console.print(table)
+
+def render_doctor_report(report: dict) -> None:
+    score = report.get("score", 0)
+    score_color = "bold green" if score >= 80 else "bold yellow" if score >= 60 else "bold red"
+
+    table = Table(title=f"🩺 Cachy-Sched-Pilot Doctor Report (System-Score: [{score_color}]{score}%[/{score_color}])", border_style="cyan", show_header=True)
+    table.add_column("Prüfung", style="bold white", width=30)
+    table.add_column("Status", justify="center", width=10)
+    table.add_column("Details & Diagnose", style="white")
+
+    for check in report.get("checks", []):
+        st = check.get("status", "INFO")
+        if st == "OK":
+            st_str = "[bold green]✔ OK[/]"
+        elif st == "WARN":
+            st_str = "[bold yellow]⚠ WARN[/]"
+        elif st == "FAIL":
+            st_str = "[bold red]✘ FEHLER[/]"
+        else:
+            st_str = "[dim]ℹ INFO[/]"
+        table.add_row(check.get("name", ""), st_str, check.get("msg", ""))
+
+    console.print(table)
+
