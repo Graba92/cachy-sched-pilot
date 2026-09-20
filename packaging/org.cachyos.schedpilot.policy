@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>CachyOS</vendor>
+  <vendor_url>https://cachyos.org</vendor_url>
+
+  <action id="org.cachyos.schedpilot.manage">
+    <description>Manage CPU Schedulers, Governors and sched-ext</description>
+    <description xml:lang="de">Verwalte CPU-Scheduler, Governors und sched-ext</description>
+    <message>Authentication is required to switch CPU schedulers or tune sysfs knobs</message>
+    <message xml:lang="de">Authentifizierung erforderlich, um CPU-Scheduler umzuschalten oder Kernel-Parameter zu verändern</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/cachy-sched-pilot/cachy-sched-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+  <action id="org.cachyos.schedpilot.manage.bin">
+    <description>Manage CPU Schedulers (Direct Binary Path)</description>
+    <description xml:lang="de">Verwalte CPU-Scheduler (Direkter Pfad)</description>
+    <message>Authentication is required to switch CPU schedulers</message>
+    <message xml:lang="de">Authentifizierung erforderlich, um CPU-Scheduler umzuschalten</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/cachy-sched-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

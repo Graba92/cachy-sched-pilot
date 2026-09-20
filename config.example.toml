@@ -1,0 +1,48 @@
+# ==============================================================================
+# Cachy-Sched-Pilot — Configuration Reference (config.toml)
+# Locations: $XDG_CONFIG_HOME/sched-pilot/config.toml, ~/.config/sched-pilot/config.toml, or /etc/sched-pilot/config.toml
+# ==============================================================================
+
+[general]
+# Interface language: "de" for German, "en" for English
+language = "de"
+
+# Background watcher polling interval in seconds
+poll_interval_sec = 3.0
+
+# Enable automatic workload detection and profile switching
+auto_pilot = true
+
+# Safety Fallback: Automatically detect when an SCX scheduler crashes and revert to kernel default
+safety_fallback = true
+
+[workloads]
+# Schedulers mapped to detected workload types
+default_idle_scheduler = "default"
+gaming_scheduler = "scx_lavd"
+compile_scheduler = "scx_rusty"
+audio_scheduler = "scx_lavd"
+emulation_scheduler = "scx_lavd"
+content_scheduler = "scx_bpfland"
+powersave_scheduler = "default"
+
+[custom_flags]
+# Custom flags passed to specific scx binaries when launched directly
+scx_lavd = ["--performance", "--pinned-slice-us", "3000"]
+scx_bpfland = []
+scx_rusty = []
+scx_flash = []
+
+[governor_policy]
+# CPU scaling governor and Energy Performance Preference (EPP) pairings
+gaming_governor = "performance"
+gaming_epp = "performance"
+
+compile_governor = "performance"
+compile_epp = "balance_performance"
+
+powersave_governor = "powersave"
+powersave_epp = "power"
+
+default_governor = "schedutil"
+default_epp = "balance_performance"

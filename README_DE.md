@@ -1,205 +1,156 @@
-[🇩🇪 Zur deutschen Dokumentation wechseln](README_DE.md) | [🇬🇧 Switch to English Documentation](README.md)
+# ⚡ Cachy-Sched-Pilot (Deutsche Dokumentation)
 
-# ⚡ Cachy-Sched-Pilot
+<div align="center">
 
-<p align="center">
-  <img src="preview_cli.png" alt="Cachy-Sched-Pilot Telemetrie & Benchmark Vorschau" width="900">
-</p>
+![Cachy-Sched-Pilot Showcase](hero_showcase.jpg)
 
-<p align="center">
-  <a href="https://github.com/Graba92/cachy-sched-pilot"><img src="https://img.shields.io/badge/GitHub-Graba92%2Fcachy--sched--pilot-blue?logo=github" alt="GitHub"></a>
-  <a href="https://cachyos.org"><img src="https://img.shields.io/badge/Plattform-CachyOS%20%7C%20Arch%20Linux-1793d1.svg?logo=archlinux" alt="Plattform"></a>
-  <img src="https://img.shields.io/badge/Kernel-Linux%206.12%2B%20(sched--ext)-purple?logo=linux" alt="Kernel">
-  <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10%2B-yellow?logo=python" alt="Python"></a>
-  <a href="https://textual.textualize.io"><img src="https://img.shields.io/badge/UI-Textual%20%2B%20Rich-green.svg" alt="Textual"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/Lizenz-MIT-green.svg" alt="Lizenz"></a>
-</p>
+**Autonomer sched-ext (SCX) Benchmark, Tuner & Workload Governor für CachyOS / Arch Linux**
 
-> **Cachy-Sched-Pilot** ist ein autonomer Micro-Benchmark, Hot-Swapper und Workload-Governor für **sched-ext (SCX)** unter **CachyOS & Arch Linux**.
->
-> Entwickelt für Linux-Gamer, Entwickler und Power-User, die Schluss machen wollen mit dem Rätselraten: *„Welcher CPU-Scheduler liefert auf meinem Ryzen/Intel die stabilsten 1% Low FPS und die geringsten Latenz-Spikes?“*
+[![Arch Linux](https://img.shields.io/badge/Arch_Linux-AUR-1793D1?logo=archlinux&logoColor=white)](https://aur.archlinux.org/)
+[![CachyOS](https://img.shields.io/badge/CachyOS-Optimiert-00A86B?logo=linux&logoColor=white)](https://cachyos.org)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Textual](https://img.shields.io/badge/UI-Textual_TUI-792EE5)](https://textual.textualize.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+*Englische Dokumentation: [README.md](README.md)*
+
+</div>
 
 ---
 
-## 📑 Inhaltsverzeichnis
-1. [Warum Cachy-Sched-Pilot?](#-warum-cachy-sched-pilot)
-2. [Kernfunktionen](#-kernfunktionen)
-3. [Benchmark-Methodik & Metriken](#-benchmark-methodik--metriken)
-4. [Architektur & Projektstruktur](#-architektur--projektstruktur)
-5. [Installation & Schnellstart](#-installation--schnellstart)
-6. [CLI & TUI Bedienungsanleitung](#-cli--tui-bedienungsanleitung)
-7. [Autopilot-Governor (Gaming vs. Compile)](#-autopilot-governor)
-8. [Lizenz](#-lizenz)
+## 🚀 Übersicht
+
+**Cachy-Sched-Pilot** ist ein produktionsreifes System- und Telemetrie-Werkzeug zur Steuerung, Diagnose und Optimierung von Linux-CPU-Schedulern. Es wurde speziell für **CachyOS** und **Arch Linux** entwickelt und unterstützt sowohl Kernel-native Scheduler (**BORE**, **EEVDF**, **cacULE**) als auch dynamische eBPF User-Space-Scheduler via **sched-ext** (`scx_*`).
+
+Das Tool ermöglicht unprivilegiertes Umschalten von Schedulern und CPU-Governors in Echtzeit, bietet automatische Profile für Gaming, Kompilierung und Audio-Workloads und schützt das System durch einen **Crash-Watchdog mit automatischem Fallback**.
 
 ---
 
-## 🎯 Warum Cachy-Sched-Pilot?
+### ✨ Hauptmerkmale
 
-In der CachyOS- und Linux-Gaming-Community tobt eine ständige Debatte:
-*Ist `scx_lavd`, `scx_rusty`, `scx_bpfland` oder der Standard-BORE-Kernel besser?*
+1. **Unprivilegierte Textual-TUI**:
+   - Modernes Terminal-Dashboard, das strikt als normaler Benutzer ausgeführt wird.
+   - Echtzeit-Balkenanzeige der CPU-Auslastung pro Kern, Taktraten, Governors und EPP.
+   - Dynamische Prüfung der Systemfähigkeiten (nicht installierte Schedulers werden sauber deaktiviert statt abzustürzen).
+   - Live-Sprachwechsel per Tastendruck (<kbd>L</kbd>) zwischen Deutsch und Englisch.
 
-Die einhellige Antwort auf Reddit und in Foren lautet stets: **„Teste es selbst auf deiner eigenen Hardware!“** Doch bisher gab es kein einfaches Werkzeug, um dies automatisiert, reproduzierbar und mit echten Nanosekunden-Latenzmessungen durchzuführen.
+2. **Sichere Privilegientrennung via Polkit**:
+   - Umschaltung von Schedulern, CPU-Governors und sysfs-Werten läuft über den Backend-Helper `cachy-sched-helper`.
+   - Autorisierung über PolicyKit-Regel `org.cachyos.schedpilot.policy` (kein Root-Terminal erforderlich).
 
-**Cachy-Sched-Pilot schließt diese Lücke:**
-- Misst die reale Aufwach-Latenz und P99-Spikes unter Last.
-- Berechnet einen aussagekräftigen **Gaming-Score** (Fokus auf minimalen Jitter) und **Throughput-Score** (Fokus auf Multithread-Kontextwechsel).
-- Ermöglicht 1-Klick Hot-Swapping ohne Reboot.
-- Überwacht im Hintergrund automatisch aktive Spiele (Steam, Proton, Wine) oder Compiler-Läufe und schaltet autonom auf den besten Scheduler um.
+3. **Sicherheits-Fallback & Absturzschutz**:
+   - Hintergrundüberwachung des Sysfs-Zustands `/sys/kernel/sched_ext/state`.
+   - Sollte ein experimenteller SCX-Scheduler abstürzen, schaltet Cachy-Sched-Pilot sofort automatisch auf den nativen Kernel-Scheduler (BORE / EEVDF) zurück – ohne Desktop-Einfrieren oder System-Hangs!
 
----
+4. **Präzisions-Micro-Benchmark**:
+   - Nanosekunden-genaue Messung der Aufwachlatenz (Wakeup Jitter) zur Erkennung von 1% Low Drops in Spielen und Xruns in DAWs.
+   - Messung des Kontextwechsel-Durchsatzes und Vergabe von Noten (S, A+, A, B, C).
 
-## ✨ Kernfunktionen
-
-- 🔬 **High-Precision Micro-Benchmark Suite**:
-  - Ermittelt mittlere Latenz (Ø µs), Minimum, Maximum, P95- und P99-Latenzen sowie Standardabweichung (Jitter).
-  - Testet reale Thread-Yield- und Kontextwechselraten pro Sekunde.
-- 🔄 **Zero-Reboot Hot-Swapping**:
-  - Schaltet im laufenden Betrieb zwischen `scx_lavd`, `scx_rusty`, `scx_bpfland`, `scx_flash` und dem Kernel-Standard (EEVDF/BORE) um.
-  - Saubere Beendigung und Fallback ohne Kernel-Panics oder Hänger.
-- 🤖 **Autonomer Workload-Governor (Auto-Pilot)**:
-  - Erkennt automatisch den Start von Steam, Proton, Heroic Games oder Lutris und aktiviert das Gaming-Profil (`scx_lavd --performance`).
-  - Erkennt ressourcenintensive Build-Jobs (`gcc`, `cargo`, `ninja`) und aktiviert das Compile-Profil (`scx_rusty`).
-  - Kehrt bei Leerlauf automatisch zum stromsparenden Standard zurück.
-- 🖥️ **Duales Interface**:
-  - **Interaktives Textual TUI**: Modernes Dashboard mit Live-Gauges, Reiter-Navigation und Tabellen.
-  - **Headless CLI Core**: Perfekt für Skripte, Benchmarks und Terminal-Automatisierung.
+5. **Headless-Automation & JSON-Telemetrie**:
+   - Vollständig scriptbar über `--status --json`, `--set-profile <profil>` und `--set-sched <name>`.
+   - Ideal für Tastenkürzel in **KDE Plasma**, **Hyprland**, **Waybar** oder **udev**-Regeln.
 
 ---
 
-## 📊 Benchmark-Methodik & Metriken
+## 📊 Unterstützte Scheduler
 
-| Metrik | Einheit | Bedeutung für das System |
-| :--- | :--- | :--- |
-| **Ø Latenz (Mean)** | Mikrosekunden (µs) | Durchschnittliche Verzögerung bis ein schlafender Thread CPU-Rechenzeit erhält. |
-| **P99 Spike Latenz** | Mikrosekunden (µs) | Die schlechtesten 1 % aller Aufwach-Ereignisse. **Direkt verantwortlich für 1% Low Ruckler in Spielen!** |
-| **Jitter (StdDev)** | Mikrosekunden (µs) | Gleichmäßigkeit des Schedulings. Je niedriger, desto flüssiger das Frame-Pacing. |
-| **Kontextwechsel/s** | Switches / Sekunde | Maximaler Durchsatz bei starker Thread-Konkurrenz (Browser, Streaming, Server). |
-| **Gaming Score** | 0 – 100 Punkte | Bewertet vorrangig Latenzarmut und Jitterfreiheit. |
-| **Throughput Score**| 0 – 100 Punkte | Bewertet Parallelisierung und Kontextwechselkapazität. |
+| Scheduler | Typ | Optimal für | Typische Anwendungen |
+| :--- | :--- | :--- | :--- |
+| **`scx_lavd`** | sched-ext (eBPF) | Gaming, Audio, Emulation | CS2, Cyberpunk, RPCS3, REAPER, DAWs |
+| **`scx_rusty`** | sched-ext (Rust/eBPF) | Multithread-Durchsatz | GCC, Clang, Cargo, Blender, Encoding |
+| **`scx_bpfland`** | sched-ext (vruntime) | Ausgewogener Desktop | Alltägliches Browsing, Medien, Programmieren |
+| **`scx_flash`** | sched-ext (eBPF) | Reaktionsschnelle UI | CPUs mit wenigen Kernen, Web-Engines |
+| **`BORE`** | Nativer CachyOS Kernel | Direkte Reaktivität | Niedrige Desktop-Latenz ohne eBPF-Overhead |
+| **`EEVDF`** | Nativer Linux-Kernel (6.6+) | Standard | Regulärer Linux-CFS-Nachfolger |
 
 ---
 
-## 🏛️ Architektur & Projektstruktur
+## 📦 Installation
 
-```text
-cachy-sched-pilot/
-├── app.py                      # Master CLI & TUI Einstiegspunkt
-├── run.sh                      # Universeller Starter (mit Auto-Venv-Erkennung)
-├── setup.sh                    # Automatischer Abhängigkeits-Installer (pacman / yay)
-├── requirements.txt            # Python-Abhängigkeiten (rich, textual, psutil)
-├── LICENSE                     # MIT Lizenz
-├── README.md                   # Englische Dokumentation
-├── README_DE.md                # Deutsche Dokumentation (diese Datei)
-├── .gitignore                  # Git-Ignore-Regeln
-├── preview_cli.png             # Hochauflösende Terminal-Vorschau
-│
-├── core/
-│   ├── detector.py             # CPU-Topologie, Kernel-Version & SCX-Binary-Erkennung
-│   ├── benchmark.py            # Nanosekunden-Latenz-, Jitter- & Durchsatz-Engine
-│   ├── manager.py              # Hot-Swapping Controller & Prozess-Bereinigung
-│   ├── governor.py             # Autonomer Hintergrund-Prozess-Governor
-│   └── profiles.py             # Vorkonfigurierte Tuning-Profile
-│
-└── ui/
-    ├── console.py              # Rich CLI Terminal-Formatierung & Tabellen
-    └── tui.py                  # Interaktives Textual Terminal Dashboard
+### Über AUR / CachyOS Repositories
+```bash
+# Mit yay
+yay -S cachy-sched-pilot
+
+# Mit paru
+paru -S cachy-sched-pilot
 ```
 
----
-
-## 🚀 Installation & Schnellstart
-
-### 1. Automatische Installation (CachyOS / Arch Linux)
-
+### Manuelle Installation & Entwicklung
 ```bash
 git clone https://github.com/Graba92/cachy-sched-pilot.git
 cd cachy-sched-pilot
-chmod +x setup.sh
-./setup.sh
-```
 
-Das Skript installiert automatisch `scx-scheds`, `scx-tools`, Python-Pakete (`rich`, `textual`, `psutil`) und verlinkt das Binary nach `~/.local/bin/cachy-sched-pilot`.
+# Abhängigkeiten installieren (CachyOS / Arch Linux)
+sudo pacman -S python python-psutil python-rich python-textual polkit scx-scheds
 
-### 2. Manuelle Installation
+# Polkit-Policy einrichten (erlaubt unprivilegiertes Umschalten)
+sudo cp packaging/org.cachyos.schedpilot.policy /usr/share/polkit-1/actions/
 
-```bash
-sudo pacman -S --needed scx-scheds scx-tools python python-rich python-psutil
-pip install --user textual
-./run.sh status
+# Interaktives Dashboard starten
+python3 app.py tui
 ```
 
 ---
 
-## 🎮 CLI & TUI Bedienungsanleitung
+## ⌨️ TUI Tastenkürzel
 
-### Status & Telemetrie prüfen
+| Taste | Aktion |
+| :---: | :--- |
+| <kbd>q</kbd> | Programm beenden |
+| <kbd>r</kbd> | Telemetrie sofort aktualisieren |
+| <kbd>l</kbd> | Sprache umschalten (**Deutsch** ⇄ **Englisch**) |
+| <kbd>b</kbd> | Micro-Benchmark für aktiven Scheduler starten |
+| <kbd>d</kbd> | Diagnose / Doctor erneut ausführen |
+
+---
+
+## 💻 CLI & Headless Nutzung
+
 ```bash
-cachy-sched-pilot status
-```
+# 1. Systemstatus anzeigen (Menschlich lesbar)
+cachy-sched-pilot --status
 
-### Vollständige System- & Kernel-Diagnose (Doctor)
-```bash
-cachy-sched-pilot doctor
-```
-Überprüft sysfs sched-ext Unterstützung, CachyOS BORE/SCX Kernel-Patches, eBPF JIT Compiler Status, `scxctl` D-Bus Anbindung, installierte Schedulers und Polkit-Rechte.
+# 2. Telemetrie als JSON für Hyprland, Waybar oder Scripte
+cachy-sched-pilot --status --json
 
-### Micro-Benchmark des aktiven Schedulers ausführen
-```bash
-cachy-sched-pilot bench --iterations 1500
-```
+# 3. Tuning-Profil aktivieren
+cachy-sched-pilot --set-profile gaming
+cachy-sched-pilot --set-profile compile
+cachy-sched-pilot --set-profile powersave
 
-### Scheduler manuell umschalten (Hot-Swap)
-```bash
-# Auf Gaming-Scheduler umschalten (unterstützt scxctl & direkte Prozesse):
-cachy-sched-pilot switch scx_lavd
+# 4. Direkt auf einen bestimmten Scheduler schalten
+cachy-sched-pilot --set-sched scx_lavd
+cachy-sched-pilot --set-sched default
 
-# Auf Compile-Scheduler umschalten:
-cachy-sched-pilot switch scx_rusty
+# 5. Systemdiagnose durchführen
+cachy-sched-pilot --doctor
 
-# Auf Balanced-Desktop-Scheduler umschalten:
-cachy-sched-pilot switch scx_bpfland
-
-# Auf Standard-Kernel zurückkehren:
-cachy-sched-pilot stop
-```
-
-### Verfügbare Tuning-Profile anzeigen
-```bash
-cachy-sched-pilot profiles
-```
-Enthält vorkonfigurierte Profile für **Gaming & E-Sports**, **Pro Audio & DAW (Zero Xrun)**, **Emulation & High-Cache (RPCS3/Ryujinx)**, **Heavy Compilation** und **Balanced Desktop**.
-
-### Test-Suite ausführen
-```bash
-python3 -m unittest discover -s tests -p "test_*.py"
-```
-
-### Autonomen Hintergrund-Governor starten
-```bash
-cachy-sched-pilot governor --interval 3.0
-```
-
-### Interaktives Textual TUI starten
-```bash
-cachy-sched-pilot tui
+# 6. Autonomen Hintergrund-Governor starten
+cachy-sched-pilot governor --interval 2.5
 ```
 
 ---
 
-## 🤖 Autopilot-Governor
+## ⚙️ Konfiguration (`config.toml`)
 
-Der Governor kann als Hintergrunddienst laufen und passt den Scheduler vollautomatisch an das an, was du gerade tust:
+Konfigurationsdateien werden nach XDG-Standards an folgenden Orten gesucht:
+1. `$XDG_CONFIG_HOME/sched-pilot/config.toml` (bzw. `~/.config/sched-pilot/config.toml`)
+2. `/etc/sched-pilot/config.toml`
 
-```mermaid
-graph TD
-    A[Cachy-Sched-Pilot Governor] --> B{Aktiver Prozess?}
-    B -->|Steam / Proton / Wine| C[🎮 Aktiviere scx_lavd Gaming-Preset]
-    B -->|GCC / Rustc / Ninja| D[🔨 Aktiviere scx_rusty Throughput-Preset]
-    B -->|Normaler Desktop / Idle| E[💤 Kehre zu Kernel Default / EEVDF zurück]
-```
+Eine detaillierte Vorlage befindet sich in [`config.example.toml`](config.example.toml).
 
 ---
 
-## 📜 Lizenz
+## 🛡️ Sicherheitsarchitektur & Polkit
 
-Veröffentlicht unter der [MIT-Lizenz](LICENSE) — Entwickelt von [Graba92](https://github.com/Graba92).
+- **TUI & CLI**: Laufen strikt ohne Root-Rechte als Standardbenutzer.
+- **`cachy-sched-helper`**: Ein isolierter Backend-Helper (`/usr/lib/cachy-sched-pilot/cachy-sched-helper`) führt ausschließlich validierte Aktionen aus einer Allowlist aus.
+- **PolicyKit**: Ermöglicht berechtigten Benutzern über `org.cachyos.schedpilot.policy` die Ausführung ohne ständige Passworteingabe.
+
+---
+
+## 📄 Lizenz
+
+Veröffentlicht unter der **MIT-Lizenz**. Siehe [LICENSE](LICENSE).
+Entwickelt von Matze Graba & der CachyOS Open Source Community.

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Cachy Sched Pilot
+GenericName=CPU Scheduler & sched-ext Manager
+GenericName[de]=CPU Scheduler & sched-ext Manager
+Comment=Autonomous sched-ext (SCX) Tuner, Benchmark & Governor for CachyOS and Arch Linux
+Comment[de]=Autonomer sched-ext (SCX) Tuner, Benchmark & Governor für CachyOS und Arch Linux
+Exec=cachy-sched-pilot tui
+Icon=utilities-system-monitor
+Terminal=true
+Type=Application
+Categories=System;Monitor;Tuning;Settings;
+Keywords=cpu;scheduler;sched-ext;scx;cachyos;kernel;bore;eevdf;
+StartupNotify=true

@@ -1,6 +1,7 @@
 """
-core/governor.py — Autonomer Workload-Governor & Auto-Pilot.
-Überwacht laufende Prozesse und schaltet dynamisch auf den jeweils besten Scheduler um.
+core/governor.py — Autonomous Workload Governor & Auto-Pilot.
+Monitors processes and automatically switches schedulers and power profiles
+with integrated safety fallback crash protection.
 """
 
 from __future__ import annotations
@@ -9,9 +10,11 @@ from typing import Callable, Optional
 
 from core.detector import SystemDetector
 from core.manager import SchedulerManager
+from core.i18n import t
+
 
 class AutopilotGovernor:
-    """Intelligenter Hintergrund-Governor zur automatischen Scheduler-Optimierung."""
+    """Intelligent background watcher for automatic scheduler and profile switching."""
 
     def __init__(self, manager: Optional[SchedulerManager] = None, log_cb: Optional[Callable[[str], None]] = None):
         self.manager = manager or SchedulerManager()
@@ -20,53 +23,54 @@ class AutopilotGovernor:
         self._running = False
 
     def step(self) -> None:
+        # 1. Safety Crash Check
+        recovered, crash_msg = self.manager.check_and_recover_safety()
+        if recovered and crash_msg:
+            self.log(f"[bold red]{crash_msg}[/]")
+            self.current_mode = "IDLE_DESKTOP"
+            return
+
+        # 2. Workload Detection
         mode, procs = SystemDetector.detect_active_workload()
         if mode == self.current_mode:
             return
 
-        cfg = self.manager.config
         prev_mode = self.current_mode
         self.current_mode = mode
 
         if mode == "GAMING":
-            target = cfg.get("gaming_scheduler", "scx_lavd")
-            self.log(f"[Governor] 🎮 Gaming-Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
-            self.manager.switch_scheduler(target)
+            self.log(f"🎮 [bold cyan]Gaming[/] ({', '.join(procs)}) -> Profile: [bold green]gaming[/]")
+            self.manager.apply_profile("gaming")
 
         elif mode == "EMULATION":
-            target = cfg.get("emulation_scheduler", "scx_lavd")
-            self.log(f"[Governor] 🕹️ Emulations-Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
-            self.manager.switch_scheduler(target)
+            self.log(f"🕹️ [bold cyan]Emulation[/] ({', '.join(procs)}) -> Profile: [bold green]emulation[/]")
+            self.manager.apply_profile("emulation")
 
         elif mode == "LOW_LATENCY_AUDIO":
-            target = cfg.get("audio_scheduler", "scx_lavd")
-            self.log(f"[Governor] 🎵 Low-Latency DAW-Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
-            self.manager.switch_scheduler(target)
+            self.log(f"🎵 [bold cyan]Low-Latency Audio[/] ({', '.join(procs)}) -> Profile: [bold green]lowlatency[/]")
+            self.manager.apply_profile("lowlatency")
 
         elif mode == "COMPILING":
-            target = cfg.get("compile_scheduler", "scx_rusty")
-            self.log(f"[Governor] 🔨 Compile-Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
-            self.manager.switch_scheduler(target)
+            self.log(f"🔨 [bold cyan]Compilation[/] ({', '.join(procs)}) -> Profile: [bold green]compile[/]")
+            self.manager.apply_profile("compile")
 
         elif mode == "CONTENT_CREATION":
-            target = cfg.get("content_scheduler", "scx_bpfland")
-            self.log(f"[Governor] 🎬 Content-Creation Workload erkannt ({', '.join(procs)}). Schalte auf: {target}")
-            self.manager.switch_scheduler(target)
+            self.log(f"🎬 [bold cyan]Content Creation[/] ({', '.join(procs)}) -> Profile: [bold green]balanced[/]")
+            self.manager.apply_profile("balanced")
 
         elif mode == "IDLE_DESKTOP":
-            target = cfg.get("default_idle_scheduler", "default")
-            self.log(f"[Governor] 💤 System im Leerlauf (vorher: {prev_mode}). Schalte auf: {target}")
-            self.manager.switch_scheduler(target)
+            self.log(f"💤 [dim]Idle Desktop[/] (prev: {prev_mode}) -> Profile: [bold green]stock[/]")
+            self.manager.apply_profile("stock")
 
     def run_loop(self, poll_interval_sec: float = 3.0) -> None:
         self._running = True
-        self.log(f"[Governor] Auto-Pilot gestartet. Prüfungsintervall: {poll_interval_sec}s.")
+        self.log(f"🚀 Auto-Pilot started (Interval: {poll_interval_sec}s). Press Ctrl+C to exit.")
         try:
             while self._running:
                 self.step()
                 time.sleep(poll_interval_sec)
         except KeyboardInterrupt:
-            self.log("[Governor] Auto-Pilot beendet.")
+            self.log("\n🛑 Auto-Pilot stopped.")
         finally:
             self._running = False
 

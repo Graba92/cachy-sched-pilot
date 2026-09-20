@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""
+bin/cachy-sched-helper — Privileged Backend Helper for Cachy-Sched-Pilot.
+Executed via Polkit (pkexec) or as root to safely manipulate schedulers,
+CPU governors, and sysfs knobs without giving full shell access to unprivileged users.
+"""
+
+from __future__ import annotations
+import os
+import sys
+import shutil
+import subprocess
+import time
+from pathlib import Path
+from typing import List
+
+ALLOWED_SCHEDULERS = {
+    "scx_lavd",
+    "scx_bpfland",
+    "scx_rusty",
+    "scx_flash",
+    "scx_central",
+    "scx_nest",
+    "scx_qmap",
+    "scx_layered",
+    "scx_simple",
+    "scx_userland",
+    "default",
+    "bore",
+    "eevdf"
+}
+
+ALLOWED_GOVERNORS = {
+    "performance",
+    "powersave",
+    "schedutil",
+    "ondemand",
+    "conservative",
+    "userspace"
+}
+
+ALLOWED_EPP = {
+    "performance",
+    "balance_performance",
+    "balance_power",
+    "power",
+    "default"
+}
+
+SYSFS_SCHED_EXT = Path("/sys/kernel/sched_ext")
+
+
+def is_root() -> bool:
+    return os.geteuid() == 0
+
+
+def stop_active_schedulers() -> bool:
+    """Stops all running SCX schedulers safely."""
+    # 1. scxctl
+    if shutil.which("scxctl"):
+        try:
+            subprocess.run(["scxctl", "stop"], capture_output=True, timeout=3)
+        except Exception:
+            pass
+
+    # 2. systemd services
+    for srv in ["scx_loader.service", "scx.service"]:
+        try:
+            subprocess.run(["systemctl", "stop", srv], capture_output=True, timeout=3)
+        except Exception:
+            pass
+
+    # 3. Process SIGINT/SIGTERM
+    for sched in ALLOWED_SCHEDULERS:
+        if sched.startswith("scx_"):
+            try:
+                subprocess.run(["killall", "-SIGINT", sched], capture_output=True, timeout=2)
+            except Exception:
+                pass
+
+    time.sleep(0.4)
+    # Check if disabled
+    state_file = SYSFS_SCHED_EXT / "state"
+    if state_file.exists():
+        try:
+            state = state_file.read_text(encoding="utf-8").strip()
+            return state in ("disabled", "")
+        except Exception:
+            return True
+    return True
+
+
+def switch_scheduler(scheduler_name: str, extra_args: List[str]) -> int:
+    sched = scheduler_name.strip().lower()
+    if sched not in ALLOWED_SCHEDULERS:
+        print(f"Error: Disallowed scheduler '{sched}'", file=sys.stderr)
+        return 1
+
+    if sched in ("default", "bore", "eevdf"):
+        ok = stop_active_schedulers()
+        if ok:
+            print("Successfully reverted to stock kernel scheduler.")
+            return 0
+        print("Failed to stop SCX schedulers cleanly.", file=sys.stderr)
+        return 1
+
+    binary = shutil.which(sched)
+    if not binary:
+        print(f"Error: Scheduler binary '{sched}' not found in PATH.", file=sys.stderr)
+        return 1
+
+    # Stop current schedulers first
+    stop_active_schedulers()
+    time.sleep(0.3)
+
+    # Sanitize flags
+    safe_flags = [f for f in extra_args if f.startswith(("-", "--")) or f.isdigit()]
+
+    cmd = [binary] + safe_flags
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        time.sleep(0.6)
+
+        state_file = SYSFS_SCHED_EXT / "state"
+        if state_file.exists():
+            state = state_file.read_text(encoding="utf-8").strip()
+            if state == "enabled":
+                print(f"Successfully activated '{sched}' (PID: {proc.pid}).")
+                return 0
+            else:
+                print(f"Failed to enable '{sched}'. Kernel state: {state}", file=sys.stderr)
+                return 1
+        else:
+            print(f"Started '{sched}', but /sys/kernel/sched_ext is not present.", file=sys.stderr)
+            return 1
+    except Exception as e:
+        print(f"Execution failed: {e}", file=sys.stderr)
+        return 1
+
+
+def set_governor(governor: str) -> int:
+    gov = governor.strip().lower()
+    if gov not in ALLOWED_GOVERNORS:
+        print(f"Error: Disallowed governor '{gov}'", file=sys.stderr)
+        return 1
+
+    success_count = 0
+    cpu_dirs = list(Path("/sys/devices/system/cpu").glob("cpu[0-9]*/cpufreq/scaling_governor"))
+    if not cpu_dirs:
+        cpu_dirs = list(Path("/sys/devices/system/cpu/cpufreq").glob("policy*/scaling_governor"))
+
+    for p in cpu_dirs:
+        try:
+            p.write_text(gov, encoding="utf-8")
+            success_count += 1
+        except Exception:
+            pass
+
+    if success_count > 0:
+        print(f"Set governor to '{gov}' across {success_count} CPU cores/policies.")
+        return 0
+
+    # Fallback to cpupower
+    if shutil.which("cpupower"):
+        res = subprocess.run(["cpupower", "frequency-set", "-g", gov], capture_output=True)
+        if res.returncode == 0:
+            print(f"Set governor to '{gov}' via cpupower.")
+            return 0
+
+    print("Failed to apply CPU scaling governor.", file=sys.stderr)
+    return 1
+
+
+def set_epp(epp: str) -> int:
+    pref = epp.strip().lower()
+    if pref not in ALLOWED_EPP:
+        print(f"Error: Disallowed EPP '{pref}'", file=sys.stderr)
+        return 1
+
+    success_count = 0
+    epp_paths = list(Path("/sys/devices/system/cpu").glob("cpu[0-9]*/cpufreq/energy_performance_preference"))
+    if not epp_paths:
+        epp_paths = list(Path("/sys/devices/system/cpu/cpufreq").glob("policy*/energy_performance_preference"))
+
+    for p in epp_paths:
+        try:
+            p.write_text(pref, encoding="utf-8")
+            success_count += 1
+        except Exception:
+            pass
+
+    if success_count > 0:
+        print(f"Set EPP to '{pref}' across {success_count} CPU cores/policies.")
+        return 0
+
+    print("EPP not supported on this platform.", file=sys.stderr)
+    return 0
+
+
+def main():
+    if not is_root():
+        print("Error: cachy-sched-helper requires root privileges. Execute via pkexec or sudo.", file=sys.stderr)
+        sys.exit(1)
+
+    if len(sys.argv) < 2:
+        print("Usage: cachy-sched-helper <switch|stop|set-governor|set-epp> [args...]", file=sys.stderr)
+        sys.exit(1)
+
+    action = sys.argv[1]
+
+    if action == "switch":
+        if len(sys.argv) < 3:
+            print("Error: switch requires scheduler name", file=sys.stderr)
+            sys.exit(1)
+        sched = sys.argv[2]
+        extra_flags = sys.argv[3:]
+        sys.exit(switch_scheduler(sched, extra_flags))
+
+    elif action == "stop":
+        ok = stop_active_schedulers()
+        if ok:
+            print("All SCX schedulers stopped.")
+            sys.exit(0)
+        else:
+            print("Failed to stop SCX schedulers.", file=sys.stderr)
+            sys.exit(1)
+
+    elif action == "set-governor":
+        if len(sys.argv) < 3:
+            print("Error: set-governor requires governor name", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(set_governor(sys.argv[2]))
+
+    elif action == "set-epp":
+        if len(sys.argv) < 3:
+            print("Error: set-epp requires EPP value", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(set_epp(sys.argv[2]))
+
+    elif action == "check-fallback":
+        # Check if SCX is broken and force cleanup
+        state_file = SYSFS_SCHED_EXT / "state"
+        if state_file.exists():
+            state = state_file.read_text(encoding="utf-8").strip()
+            if state != "enabled":
+                stop_active_schedulers()
+        sys.exit(0)
+
+    else:
+        print(f"Unknown action: {action}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,59 +1,104 @@
 """
-core/profiles.py — Vorkonfigurierte Scheduler-Profile für typische Anwendungsfälle.
+core/profiles.py — Pre-tuned Performance, Latency and Efficiency Profiles.
+Pairs CPU schedulers with matching scaling governors and energy preference hints.
 """
 
+from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List
 
+from core.i18n import t
+
+
 @dataclass
 class SchedProfile:
-    name: str
+    id: str
+    name_key: str
     target_scheduler: str
-    description: str
+    governor: str
+    epp: str
+    desc_key: str
     recommended_flags: List[str]
     workload_type: str
 
+    @property
+    def name(self) -> str:
+        return t(self.name_key)
+
+    @property
+    def description(self) -> str:
+        return t(self.desc_key)
+
+
 PROFILES: Dict[str, SchedProfile] = {
-    "gaming_esports": SchedProfile(
-        name="Gaming & E-Sports (Low Latency)",
+    "gaming": SchedProfile(
+        id="gaming",
+        name_key="prof_gaming_name",
         target_scheduler="scx_lavd",
-        description="Minimiert Latenz-Jitter und 1% Low Drops für maximale FPS-Stabilität.",
+        governor="performance",
+        epp="performance",
+        desc_key="prof_gaming_desc",
         recommended_flags=["--performance", "--pinned-slice-us", "3000"],
         workload_type="Gaming"
     ),
-    "heavy_compile": SchedProfile(
-        name="Compile & Multi-Core Rendering",
-        target_scheduler="scx_rusty",
-        description="Maximaler Thread-Durchsatz für GCC, Rustc, Clang und Blender.",
-        recommended_flags=[],
-        workload_type="Compilation"
-    ),
-    "balanced_daily": SchedProfile(
-        name="Balanced Desktop & Media",
-        target_scheduler="scx_bpfland",
-        description="Gleichmäßige Lastverteilung, reaktionsschnelle UI und flüssiges Browsing.",
-        recommended_flags=[],
-        workload_type="General"
-    ),
-    "audio_pro": SchedProfile(
-        name="Pro Audio & DAW (Zero Xrun)",
+    "lowlatency": SchedProfile(
+        id="lowlatency",
+        name_key="prof_audio_name",
         target_scheduler="scx_lavd",
-        description="Ultra-niedriger Jitter und garantierte Zeitscheiben für JACK, PipeWire und DAWs.",
+        governor="performance",
+        epp="performance",
+        desc_key="prof_audio_desc",
         recommended_flags=["--performance", "--pinned-slice-us", "1500"],
-        workload_type="Audio"
+        workload_type="Audio / Low-Latency"
     ),
-    "emulation_heavy": SchedProfile(
-        name="Emulation & High-Cache (RPCS3/Ryujinx)",
+    "compile": SchedProfile(
+        id="compile",
+        name_key="prof_compile_name",
+        target_scheduler="scx_rusty",
+        governor="performance",
+        epp="balance_performance",
+        desc_key="prof_compile_desc",
+        recommended_flags=[],
+        workload_type="Compilation / Throughput"
+    ),
+    "balanced": SchedProfile(
+        id="balanced",
+        name_key="prof_balanced_name",
+        target_scheduler="scx_bpfland",
+        governor="schedutil",
+        epp="balance_performance",
+        desc_key="prof_balanced_desc",
+        recommended_flags=[],
+        workload_type="General Desktop"
+    ),
+    "powersave": SchedProfile(
+        id="powersave",
+        name_key="prof_powersave_name",
+        target_scheduler="default",
+        governor="powersave",
+        epp="power",
+        desc_key="prof_powersave_desc",
+        recommended_flags=[],
+        workload_type="Power Saving"
+    ),
+    "emulation": SchedProfile(
+        id="emulation",
+        name_key="prof_emulation_name",
         target_scheduler="scx_lavd",
-        description="Optimiert für intensive JIT-Rekompilierung und synchronisierte Inter-Core Kommunikation.",
+        governor="performance",
+        epp="performance",
+        desc_key="prof_emulation_desc",
         recommended_flags=["--performance"],
         workload_type="Emulation"
     ),
-    "kernel_stock": SchedProfile(
-        name="Kernel Default (BORE / EEVDF)",
+    "stock": SchedProfile(
+        id="stock",
+        name_key="prof_stock_name",
         target_scheduler="default",
-        description="Standardmäßiger Linux/CachyOS-Kernel-Scheduler ohne sched-ext.",
+        governor="schedutil",
+        epp="balance_performance",
+        desc_key="prof_stock_desc",
         recommended_flags=[],
-        workload_type="Native"
+        workload_type="Kernel Default"
     )
 }

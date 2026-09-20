@@ -1,180 +1,212 @@
 """
 core/manager.py — Scheduler Controller & Hot-Swapping Orchestrator.
-Ermöglicht nahtloses Wechseln zwischen scx_* Schedulern und dem Kernel-Default.
+Manages dynamic switching between sched-ext schedulers and kernel defaults,
+governor application, safety fallbacks, and privileged execution via Polkit.
 """
 
 from __future__ import annotations
-import json
 import os
 import shutil
-import signal
 import subprocess
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from core.detector import SystemDetector, KNOWN_SCHEDULERS
+from core.config import ConfigManager
+from core.detector import SystemDetector, KNOWN_SCHEDULERS, SYSFS_SCHED_EXT
+from core.profiles import PROFILES, SchedProfile
+from core.i18n import t
 
-CONFIG_DIR = Path.home() / ".config" / "cachy-sched-pilot"
-CONFIG_FILE = CONFIG_DIR / "config.json"
-
-DEFAULT_CONFIG = {
-    "auto_pilot": True,
-    "default_idle_scheduler": "default",
-    "gaming_scheduler": "scx_lavd",
-    "compile_scheduler": "scx_rusty",
-    "audio_scheduler": "scx_lavd",
-    "emulation_scheduler": "scx_lavd",
-    "content_scheduler": "scx_bpfland",
-    "custom_flags": {
-        "scx_lavd": ["--performance"],
-        "scx_bpfland": [],
-        "scx_rusty": []
-    }
-}
 
 class SchedulerManager:
-    """Steuert das Laden, Wechseln und Beenden von sched-ext Schedulern."""
+    """Controls loading, switching, and terminating sched-ext schedulers safely."""
 
     def __init__(self):
-        self.config = self.load_config()
+        self.config = ConfigManager.load()
+        self._last_known_scx: Optional[str] = None
 
-    def load_config(self) -> dict:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        if CONFIG_FILE.exists():
-            try:
-                data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-                # Fehlende Default-Schlüssel ergänzen
-                updated = False
-                for k, v in DEFAULT_CONFIG.items():
-                    if k not in data:
-                        data[k] = v
-                        updated = True
-                if updated:
-                    CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                return data
-            except Exception:
-                pass
-        CONFIG_FILE.write_text(json.dumps(DEFAULT_CONFIG, indent=2), encoding="utf-8")
-        return DEFAULT_CONFIG
+    @staticmethod
+    def get_helper_path() -> Optional[str]:
+        """Locates the privileged cachy-sched-helper binary."""
+        # 1. System package locations
+        system_paths = [
+            "/usr/lib/cachy-sched-pilot/cachy-sched-helper",
+            "/usr/bin/cachy-sched-helper",
+            "/usr/local/bin/cachy-sched-helper"
+        ]
+        for p in system_paths:
+            if os.path.isfile(p) and os.access(p, os.X_OK):
+                return p
 
-    def save_config(self, cfg: dict) -> None:
-        self.config = cfg
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        # 2. Local development checkout path
+        local_path = Path(__file__).resolve().parent.parent / "bin" / "cachy-sched-helper"
+        if local_path.is_file() and os.access(str(local_path), os.X_OK):
+            return str(local_path)
+
+        # 3. Search PATH
+        which_helper = shutil.which("cachy-sched-helper")
+        if which_helper:
+            return which_helper
+
+        return None
+
+    def execute_privileged(self, args: List[str]) -> Tuple[bool, str]:
+        """
+        Executes a command through the privileged helper via Polkit (pkexec) or directly if root.
+        """
+        helper = self.get_helper_path()
+        if not helper:
+            return False, t("msg_helper_not_found", path="cachy-sched-helper")
+
+        if os.geteuid() == 0:
+            cmd = [helper] + args
+        else:
+            if shutil.which("pkexec"):
+                cmd = ["pkexec", helper] + args
+            elif shutil.which("sudo"):
+                cmd = ["sudo", helper] + args
+            else:
+                return False, t("msg_privilege_error")
+
+        try:
+            res = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=12
+            )
+            if res.returncode == 0:
+                out = res.stdout.strip() or "Success"
+                return True, out
+            err = res.stderr.strip() or res.stdout.strip() or "Privileged command failed"
+            return False, err
+        except subprocess.TimeoutExpired:
+            return False, "Command timed out."
+        except Exception as e:
+            return False, str(e)
 
     def stop_active_scx(self) -> Tuple[bool, str]:
-        """Stoppt alle aktiven scx_* Scheduler und kehrt zum Kernel-Default zurück."""
+        """Stops all active scx_* schedulers and reverts to stock kernel."""
         status = SystemDetector.detect_scx_status()
         if status.state == "disabled":
-            return True, "Bereits auf Standard-Kernel (sched-ext ist inaktiv)."
+            self._last_known_scx = None
+            return True, t("msg_already_default")
 
-        stopped_any = False
+        # Try privileged helper
+        ok, msg = self.execute_privileged(["stop"])
+        if ok:
+            self._last_known_scx = None
+            return True, t("msg_reverted_default")
 
-        # 1. Wenn scxctl verfügbar ist, D-Bus Stopp bevorzugen
+        # Unprivileged fallback via scxctl (D-Bus)
         if status.scxctl_installed:
             try:
                 res = subprocess.run(["scxctl", "stop"], capture_output=True, text=True, timeout=3)
                 if res.returncode == 0:
-                    stopped_any = True
+                    self._last_known_scx = None
+                    return True, t("msg_reverted_default")
             except Exception:
                 pass
 
-        # 2. Wenn scx_loader läuft:
-        if status.scx_loader_active:
-            for srv in ["scx_loader.service", "scx.service"]:
-                try:
-                    subprocess.run(["systemctl", "stop", srv], check=False, timeout=3)
-                    stopped_any = True
-                except Exception:
-                    pass
-
-        # 3. Bestehende scx-Prozesse per kill beenden
-        for sched in KNOWN_SCHEDULERS:
-            try:
-                subprocess.run(["killall", "-SIGINT", sched], capture_output=True, timeout=2)
-                stopped_any = True
-            except Exception:
-                pass
-
-        time.sleep(0.5)
-        new_status = SystemDetector.detect_scx_status()
-        if new_status.state == "disabled":
-            return True, "Erfolgreich auf Standard-Kernel-Scheduler zurückgekehrt."
-        return False, f"Scheduler konnte nicht vollständig beendet werden. Status: {new_status.state}"
+        return False, t("msg_stop_fail", err=msg)
 
     def switch_scheduler(self, scheduler_name: str, extra_args: Optional[List[str]] = None) -> Tuple[bool, str]:
         """
-        Aktiviert einen bestimmten SCX-Scheduler oder 'default' für den Kernel-Standard.
-        Unterstützt scxctl (D-Bus), systemd und direktes Spawnen.
+        Switches to target scheduler safely using Polkit helper.
+        Supports: scx_lavd, scx_rusty, scx_bpfland, default, etc.
         """
         sched_clean = scheduler_name.strip().lower()
-        if sched_clean in ["default", "kernel", "bore", "eevdf", "none", "off"]:
+        if sched_clean in ["default", "kernel", "bore", "eevdf", "none", "off", "stock"]:
             return self.stop_active_scx()
 
-        # scx_ Prefix normalisieren
+        # Normalize name
         binary_name = sched_clean if sched_clean.startswith("scx_") else f"scx_{sched_clean}"
-        short_name = sched_clean.removeprefix("scx_")
 
         if not shutil.which(binary_name):
-            return False, f"Binary '{binary_name}' ist nicht im System-PATH installiert."
+            return False, t("msg_not_installed", binary=binary_name)
 
-        # 1. Versuch via scxctl, falls keine extra_args übergeben wurden
-        flags = extra_args or self.config.get("custom_flags", {}).get(binary_name, [])
-        if not flags and shutil.which("scxctl"):
+        # Get custom flags from config if not passed
+        custom_flags_map = self.config.get("custom_flags", {})
+        flags = extra_args if extra_args is not None else custom_flags_map.get(binary_name, [])
+
+        # Execute switch via privileged helper
+        helper_args = ["switch", binary_name] + flags
+        ok, msg = self.execute_privileged(helper_args)
+
+        if ok:
+            self._last_known_scx = binary_name
+            time.sleep(0.3)
+            return True, t("msg_switched_success", sched=binary_name)
+
+        # Fallback to scxctl if helper failed or wasn't authorized
+        short_name = binary_name.removeprefix("scx_")
+        if shutil.which("scxctl"):
             try:
                 res = subprocess.run(["scxctl", "switch", short_name], capture_output=True, text=True, timeout=4)
                 if res.returncode == 0:
-                    time.sleep(0.4)
-                    new_status = SystemDetector.detect_scx_status()
-                    if new_status.state == "enabled":
-                        return True, f"Scheduler '{binary_name}' erfolgreich via scxctl aktiviert (D-Bus)."
+                    self._last_known_scx = binary_name
+                    return True, t("msg_switched_success", sched=binary_name)
             except Exception:
                 pass
 
-        # 2. Alten Scheduler stoppen und direkt spawnen
-        self.stop_active_scx()
-        time.sleep(0.3)
+        return False, t("msg_switched_fail", sched=binary_name, err=msg)
 
-        cmd = [binary_name] + flags
+    def set_governor(self, governor: str) -> Tuple[bool, str]:
+        """Sets CPU scaling governor."""
+        return self.execute_privileged(["set-governor", governor])
 
-        # Start im Hintergrund via pkexec / sudo oder direkt falls Root
-        if os.geteuid() == 0:
-            full_cmd = cmd
-        else:
-            if shutil.which("pkexec"):
-                full_cmd = ["pkexec"] + cmd
-            else:
-                full_cmd = ["sudo", "-n"] + cmd
+    def set_epp(self, epp: str) -> Tuple[bool, str]:
+        """Sets energy performance preference."""
+        return self.execute_privileged(["set-epp", epp])
 
-        try:
-            proc = subprocess.Popen(
-                full_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True
-            )
-            time.sleep(0.6)
-
-            new_status = SystemDetector.detect_scx_status()
-            if new_status.state == "enabled":
-                return True, f"Scheduler '{binary_name}' erfolgreich aktiviert (PID: {new_status.active_pid or proc.pid})."
-            else:
-                return False, f"Start von '{binary_name}' initiiert, sched-ext meldet jedoch 'disabled'. Root-Rechte erforderlich."
-        except Exception as e:
-            return False, f"Fehler beim Starten von {binary_name}: {e}"
-
-    @staticmethod
-    def generate_systemd_template(scheduler_name: str, extra_flags: str = "") -> str:
+    def apply_profile(self, profile_id: str) -> Tuple[bool, str]:
         """
-        Generiert die empfohlene Konfiguration für /etc/default/scx
-        zur dauerhaften Aktivierung beim Booten in CachyOS.
+        Applies a pre-configured profile: sets scheduler, CPU governor, and EPP.
         """
-        short_name = scheduler_name.strip().removeprefix("scx_")
-        template = f"""# CachyOS sched-ext Boot-Konfiguration (/etc/default/scx)
-# Generiert von Cachy-Sched-Pilot
-SCX_SCHEDULER="{short_name}"
-SCX_FLAGS="{extra_flags}"
-"""
-        return template
+        prof_id = profile_id.strip().lower()
+        profile: Optional[SchedProfile] = PROFILES.get(prof_id)
+        if not profile:
+            # Check if matching by partial name
+            for k, p in PROFILES.items():
+                if prof_id in k:
+                    profile = p
+                    break
 
+        if not profile:
+            return False, f"Unknown profile: '{profile_id}'"
+
+        # 1. Switch scheduler
+        ok, sched_msg = self.switch_scheduler(profile.target_scheduler, profile.recommended_flags)
+        if not ok and profile.target_scheduler != "default":
+            return False, sched_msg
+
+        # 2. Set Governor
+        if profile.governor:
+            self.set_governor(profile.governor)
+
+        # 3. Set EPP
+        if profile.epp:
+            self.set_epp(profile.epp)
+
+        return True, t("msg_profile_applied", name=profile.name)
+
+    def check_and_recover_safety(self) -> Tuple[bool, Optional[str]]:
+        """
+        Safety Fallback Watcher:
+        Checks if an active scx scheduler unexpectedly died or crashed.
+        Automatically resets sysfs state to prevent system lockups.
+        """
+        if not self._last_known_scx:
+            return False, None
+
+        status = SystemDetector.detect_scx_status()
+        # If we expected an SCX scheduler to run, but sched_ext is disabled or stopped:
+        if status.state == "disabled":
+            # Revert cleanup
+            self.stop_active_scx()
+            crashed_sched = self._last_known_scx
+            self._last_known_scx = None
+            msg = t("msg_crash_detected")
+            return True, f"{msg} ({crashed_sched})"
+
+        return False, None
